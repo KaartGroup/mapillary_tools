@@ -41,7 +41,7 @@ def get_lat_lon_time_from_fit(geotag_file_list, local_time=True, verbose=False):
             offset = datetime.timedelta(seconds=timestamp_correlation['system_timestamp'],
                                          milliseconds=timestamp_correlation['system_timestamp_ms'])
             start_time = timestamp - offset
-            camera_events = (c for c in fit.get_messages(161) if c.get('camera_event_type').value in ['video_second_stream_start', 'video_second_stream_end'])
+            camera_events = (c for c in fit.get_messages(161) if c.get('camera_event_type').value in ['video_start', 'video_end'])
             for start in tqdm(camera_events, desc='Extracting Video data from .FIT file'):
                 vid_id = parse_uuid_string(start.get('camera_file_uuid').value)[-2]
                 end = next(camera_events)
