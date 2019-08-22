@@ -25,6 +25,7 @@ from . import ipc
 from .error import print_error
 from .utils import force_decode
 
+
 STATUS_PAIRS = {"success": "failed",
                 "failed": "success"
                 }
@@ -314,27 +315,7 @@ def geotag_from_garmin_fit(process_file_list,
         offset_time = None
         # create offset using the start camera_event from the fit file to correct the image timestamp
         try:
-            if type(videos_gps) is dict and vid_id in videos_gps:
-                gps_trace = videos_gps[vid_id][1]
-                offset_time = (start_time - videos_gps[vid_id][0]).total_seconds()
-            elif type(videos_gps) is list:
-                gps_trace = videos_gps[int(vid_id)][1]
-                offset_time = (start_time - videos_gps[int(vid_id)][0]).total_seconds()
-            elif type(videos_gps) is dict and vid_id not in videos_gps:
-                initial_time = datetime.datetime(1900, 1, 1)
-                video_id = None
-                for key in videos_gps:
-                    temporary_time = videos_gps[key][0]
-                    if temporary_time > initial_time and temporary_time < capture_time:
-                        initial_time = temporary_time
-                        video_id = key
-                if video_id is not None:
-                    gps_trace = videos_gps[video_id][1]
-                    offset_time = (start_time - videos_gps[video_id][0]).total_seconds()
-                else:
-                    raise IndexError("No valid track found for image {}".format(image))
-            else:
-                raise TypeError("Unexpected videos_gps type: {}".format(type(videos_gps)))
+            gps_trace = videos_gps
             geotag_properties = get_geotag_properties_from_gps_trace(
                 image, capture_time, gps_trace, offset_angle, offset_time, verbose=True)
 
@@ -547,8 +528,8 @@ def get_final_mapillary_image_description(log_root, image, master_upload=False, 
             if (sub_command == "settings_upload_hash" or sub_command == "upload_params_process") and master_upload:
                 continue
             else:
-                print("Warning, required {} did not result in a valid json file for image ".format(
-                    sub_command) + image)
+                raise ValueError("Warning, required {} did not result in a valid json file for image {} ({})".format(
+                    sub_command, image, sub_command_data_path))
                 return None
         if sub_command == "settings_upload_hash" or sub_command == "upload_params_process":
             continue
@@ -665,14 +646,13 @@ def get_final_mapillary_image_description(log_root, image, master_upload=False, 
 def get_geotag_data(log_root, image, verbose=False):
     if not os.path.isdir(log_root):
         if verbose:
-            print("Warning, no logs for image " + image)
+            tqdm.write("Warning, no logs for image " + image)
         return None
     # check if geotag process was a success
     log_geotag_process_success = os.path.join(log_root,
                                               "geotag_process_success")
     if not os.path.isfile(log_geotag_process_success):
-        print("Warning, geotag process failed for image " + image +
-              ", therefore it will not be included in the sequence processing.")
+        raise ValueError("Warning, geotag process failed for image {}, therefore it will not be included in the sequence processing. {}".format(image, log_geotag_process_success))
         return None
     # load the geotag json
     geotag_process_json_path = os.path.join(log_root,

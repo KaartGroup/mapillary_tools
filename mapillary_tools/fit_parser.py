@@ -3,10 +3,55 @@
 from fitparse import FitFile
 import datetime
 from tqdm import tqdm
+import sortedcontainers
 
 '''
 Methods for parsing gps data from Garmin FIT files
 '''
+
+class RecordObject(object):
+    def __init__(self, fitfileDictionary):
+        self._dictionary = fitfileDictionary
+
+    def __lt__(self, other):
+        return self._getSortKey() < other._getSortKey()
+
+    def _getSortKey(self):
+        if "timestamp" in self._dictionary:
+            rValue = self._dictionary["timestamp"]
+            if "timestamp_ms" in self._dictionary:
+                rValue += self._dictionary["timestamp_ms"]
+            return rValue
+        else:
+            raise ValueError("There is no timestamp")
+
+    def __str__(self):
+        return self._dictionary["timestamp"]
+        #return("{}.{}: {}, {}".format(self._dictionary["timestamp"], self._dictionary["timestamp_ms"] if "timestamp_ms" in self._dictionary else 0, self._dictionary["position_lat"], self._dictionary["position_long"]))
+
+    def getDictionary(self):
+        return self._dictionary
+
+    def getLatitude(self):
+        return self._dictionary["position_lat"] if "position_lat" in self._dictionary else None
+
+    def getLongitude(self):
+        return self._dictionary["position_long"] if "position_long" in self._dictionary else None
+
+    def getAltitude(self):
+        return self._dictionary["altitude"] if "altitude" in self._dictionary else None
+
+    def getSpeed(self):
+        return self._dictionary["speed"] if "speed" in self._dictionary else None
+
+    def createTuple(self):
+        rTuple = (
+                self._dictionary["timestamp"],
+                float(self._dictionary["position_lat"]) * 180 / 2**31,
+                float(self._dictionary["position_long"]) * 180 / 2**31,
+                self._dictionary["altitude"] if "altitude" in self._dictionary else None
+            )
+        return rTuple
 
 
 def parse_uuid_string(uuid_string):
@@ -24,60 +69,24 @@ def get_lat_lon_time_from_fit(geotag_file_list, local_time=True, verbose=False):
     Returns a tuple (video_start_time, points) where points is a list of tuples (time, lat, lon, altitude)
     '''
     vids = {}
+    sortedList = sortedcontainers.SortedSet()
     for geotag_file in geotag_file_list:
 
         alt = None
         lat = None
         lon = None
         time_delta = None
+        fit = FitFile(geotag_file)
+
+        vid_times = {}
         try:
-            fit = FitFile(geotag_file)
-
-            vid_times = {}
-
-            timestamp_correlations = fit.get_messages(162)
-            timestamp_correlation = next(timestamp_correlations).get_values()
-            timestamp = timestamp_correlation['local_timestamp']
-            offset = datetime.timedelta(seconds=timestamp_correlation['system_timestamp'],
-                                         milliseconds=timestamp_correlation['system_timestamp_ms'])
-            start_time = timestamp - offset
-            camera_events = (c for c in fit.get_messages(161) if c.get('camera_event_type').value in ['video_second_stream_start', 'video_second_stream_end'])
-            for start in tqdm(camera_events, desc='Extracting Video data from .FIT file'):
-                vid_id = parse_uuid_string(start.get('camera_file_uuid').value)[-2]
-                end = next(camera_events)
-                start_timedelta = datetime.timedelta(seconds=start.get('timestamp').value, milliseconds=start.get('timestamp_ms').value)
-                start_timestamp = start_time + start_timedelta
-                end_timedelta = datetime.timedelta(seconds=end.get('timestamp').value, milliseconds=end.get('timestamp_ms').value)
-                end_timestamp = start_time + end_timedelta
-                vid_times[vid_id] = (start_timestamp, end_timestamp)
-
-            points = []
-            for vid_id, times in tqdm(vid_times.items(), desc='Extracting GPS data from .FIT file'):
-                gps_metadata = (g for g in fit.get_messages(160) if times[0] <= (start_time + datetime.timedelta(seconds=g.get('timestamp').value, milliseconds=g.get('timestamp_ms').value)) <= times[-1])
-                for gps in gps_metadata:
-                    try:
-                        alt = gps.get('enhanced_altitude').value
-                        lat_in_semicircles = gps.get('position_lat').value
-                        lat = float(lat_in_semicircles) * 180 / 2**31
-                        lon_in_semicircles = gps.get('position_long').value
-                        lon = float(lon_in_semicircles) * 180 / 2**31
-                        time_delta = datetime.timedelta(seconds=gps.get('timestamp').value, milliseconds=gps.get('timestamp_ms').value)
-                        wp_datetime = start_time + time_delta
-                    except:
-                        continue
-                    if alt is not None and lat is not None and lon is not None and wp_datetime is not None and times[0] <= wp_datetime <= times[-1]:
-                        points.append((wp_datetime, lat, lon, alt))
-                try:
-                    vids[int(vid_id)] = (times[0], sorted(points))
-                except:
-                    vids[vid_id] = (times[0], sorted(points))
-
+            for record in fit.get_messages('record'):
+                recordDict = {}
+                for record_data in record:
+                    recordDict[record_data.name] = record_data.value
+                sortedList.add(RecordObject(recordDict))
         except ValueError:
-            if verbose:
-                print("Warning: {} is not formatted properly".format(geotag_file))
+            # Occurs when record not in fit file
             pass
-        except StopIteration:
-            if verbose:
-                print("Warning: {} does not have enough iterations".format(geotag_file))
-            pass
-    return vids
+    returnList = [record.createTuple() for record in sortedList if record.getLatitude() is not None]
+    return returnList
