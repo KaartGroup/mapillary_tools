@@ -67,7 +67,7 @@ class UploadThread(threading.Thread):
         self.total_task = self.q.qsize()
 
     def run(self):
-        while True:
+        while not self.q.empty():
             # fetch file from the queue and upload
             filepath, max_attempts, params = self.q.get()
             if filepath is None:
